@@ -4,11 +4,11 @@
 
 
 # River Monitoring Libraries Libraries
-from sub.wlvl import lidarRead
+from lib.waterlevel import lidarRead
 import busio
 import cv2
 import numpy as np
-from sub.tracker import *
+from lib.tracker import *
 
 # CPU Status Libraries
 from gpiozero import CPUTemperature

@@ -2,15 +2,17 @@ import sys
 import threading
 import time
 import logging
+import serial
 from PySide2.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QLabel
 from PySide2.QtCore import Qt
 import queue
+from lib.sensors import getSensor
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger()
 
-# Global variables to store averages for certain values
+# Global variables for sensor averages
 water_level_avg = 0.0
 water_flow_avg = 0.0
 river_discharge_avg = 0.0
@@ -18,7 +20,7 @@ dht_temp_avg = 0.0
 dht_hum_avg = 0.0
 avg_count = 0
 
-# Last values for CPU readings
+# Global variables for CPU readings
 cpu_temp_last = 0.0
 cpu_usage_last = 0.0
 cpu_speed_last = 0.0
@@ -33,66 +35,69 @@ threadTimer_log = 60
 # File for logging data
 comfile = "data_log.csv"
 
-# Queue for UART (not currently used in this example)
+# UART Configuration
+SERIAL_PORT = "/dev/serial0"  # Default UART port on Raspberry Pi
+BAUD_RATE = 9600  # Baud rate for UART communication
+
+# Queue for sending data to UART thread
 uart_queue = queue.Queue()
 
-# Mock sensor class
-class Sensor:
-    def getwaterLevel(self):
-        return 1.23
+# # Mock sensor class
+# class Sensor:
+#     def getwaterLevel(self):
+#         return 1.23
 
-    def getWaterFlow(self):
-        return 0.45
+#     def getWaterFlow(self):
+#         return 0.45
 
-    def getRiverDischarge(self):
-        return 12.34
+#     def getRiverDischarge(self):
+#         return 12.34
 
-    def getdhtTemp(self):
-        return 25.6
+#     def getdhtTemp(self):
+#         return 25.6
 
-    def getdhtHum(self):
-        return 60.5
+#     def getdhtHum(self):
+#         return 60.5
 
-    def getcpuTemp(self):
-        return 55.3
+#     def getcpuTemp(self):
+#         return 55.3
 
-    def getcpuUsage(self):
-        return 35.7
+#     def getcpuUsage(self):
+#         return 35.7
 
-    def getcpuSpeed(self):
-        return 3.2
+#     def getcpuSpeed(self):
+#         return 3.2
 
-sensor = Sensor()
+sensor = getSensor()
 
-# Function to compute and update averages for the required sensors
-def update_sensor_averages():
-    global water_level_avg, water_flow_avg, river_discharge_avg, dht_temp_avg, dht_hum_avg, avg_count
-
-    # Retrieve sensor data
-    water_level = sensor.getwaterLevel()
-    water_flow = sensor.getWaterFlow()
-    river_discharge = sensor.getRiverDischarge()
-    dht_temp = sensor.getdhtTemp()
-    dht_hum = sensor.getdhtHum()
-
-    # Update averages
-    avg_count += 1
-    water_level_avg = (water_level_avg * (avg_count - 1) + water_level) / avg_count
-    water_flow_avg = (water_flow_avg * (avg_count - 1) + water_flow) / avg_count
-    river_discharge_avg = (river_discharge_avg * (avg_count - 1) + river_discharge) / avg_count
-    dht_temp_avg = (dht_temp_avg * (avg_count - 1) + dht_temp) / avg_count
-    dht_hum_avg = (dht_hum_avg * (avg_count - 1) + dht_hum) / avg_count
-
-    logger.info(f"Updated averages: WaterLevel={water_level_avg:.2f}, WaterFlow={water_flow_avg:.2f}, "
-                f"RiverDischarge={river_discharge_avg:.2f}, DHTTemp={dht_temp_avg:.2f}, DHTHum={dht_hum_avg:.2f}")
-
-# Thread for checking and averaging sensor values every 5 seconds
 def sensor_check():
     while not terminate_program:
-        update_sensor_averages()
-        time.sleep(5)
+        # Retrieve sensor data
+        water_level = sensor.getwaterLevel()
+        water_flow = sensor.getWaterFlow()
+        river_discharge = sensor.getRiverDischarge()
+        dht_temp = sensor.getdhtTemp()
+        dht_hum = sensor.getdhtHum()
 
-# Data logging function
+        # Update global averages
+        global water_level_avg, water_flow_avg, river_discharge_avg, dht_temp_avg, dht_hum_avg, avg_count
+        avg_count += 1
+        water_level_avg = (water_level_avg * (avg_count - 1) + water_level) / avg_count
+        water_flow_avg = (water_flow_avg * (avg_count - 1) + water_flow) / avg_count
+        river_discharge_avg = (river_discharge_avg * (avg_count - 1) + river_discharge) / avg_count
+        dht_temp_avg = (dht_temp_avg * (avg_count - 1) + dht_temp) / avg_count
+        dht_hum_avg = (dht_hum_avg * (avg_count - 1) + dht_hum) / avg_count
+
+        # Log updated sensor values for debugging
+        logger.info(f"Gathered data: WaterLevel={water_level:.2f}, WaterFlow={water_flow:.2f}, "
+                    f"RiverDischarge={river_discharge:.2f}, DHTTemp={dht_temp:.2f}, DHTHum={dht_hum:.2f}")
+        logger.info(f"Updated averages: WaterLevelAvg={water_level_avg:.2f}, WaterFlowAvg={water_flow_avg:.2f}, "
+                    f"RiverDischargeAvg={river_discharge_avg:.2f}, DHTTempAvg={dht_temp_avg:.2f}, DHTHumAvg={dht_hum_avg:.2f}")
+
+        # Sleep for 5 seconds before gathering data again
+        time.sleep(5)
+        
+# Data logging thread
 def data_log():
     global processing, cpu_temp_last, cpu_usage_last, cpu_speed_last
 
@@ -111,15 +116,19 @@ def data_log():
             cpu_usage_last = sensor.getcpuUsage()
             cpu_speed_last = sensor.getcpuSpeed()
 
-            # Log to file with the latest CPU values and sensor averages
+            # Log data
             log_data = (f"{time.strftime('%H:%M:%S,%d/%m/%Y')},{water_level_avg:.2f},{water_flow_avg:.2f},"
                         f"{river_discharge_avg:.2f},{dht_temp_avg:.2f},{dht_hum_avg:.2f},"
                         f"{cpu_temp_last:.2f},{cpu_usage_last:.2f},{cpu_speed_last:.2f}\n")
 
             try:
+                # Write to CSV
                 with open(comfile, 'a') as file:
                     file.write(log_data)
                     logger.info("Data logged successfully.")
+
+                # Send data to UART via queue
+                uart_queue.put(log_data)
             except IOError as e:
                 logger.error(f"File write error: {e}")
 
@@ -127,9 +136,31 @@ def data_log():
             processing = False
 
         # Wait for the next execution
-        logger.info(f"Waiting {threadTimer_log} seconds for the next data log.")
         while time.time() - thread_start_time < threadTimer_log and not terminate_program:
             time.sleep(1)
+
+# UART communication thread
+def uart_thread():
+    try:
+        # Initialize UART
+        ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+        logger.info(f"Connected to UART at {SERIAL_PORT} with baud rate {BAUD_RATE}")
+
+        while not terminate_program:
+            # Send data from queue
+            if not uart_queue.empty():
+                data_to_send = uart_queue.get()
+                ser.write(data_to_send.encode())
+                logger.info(f"Sent data to UART: {data_to_send.strip()}")
+
+            # Read data from UART
+            if ser.in_waiting > 0:
+                received_data = ser.readline().decode('utf-8').strip()
+                logger.info(f"Received from UART: {received_data}")
+
+            time.sleep(1)  # Avoid busy-waiting
+    except serial.SerialException as e:
+        logger.error(f"UART error: {e}")
 
 # PySide2 GUI for controlling threads
 class ThreadController(QWidget):
@@ -153,25 +184,31 @@ class ThreadController(QWidget):
         # Threads
         self.sensor_thread = None
         self.logging_thread = None
+        self.uart_thread = None
 
         # Button Connections
         self.start_button.clicked.connect(self.start_threads)
         self.stop_button.clicked.connect(self.stop_threads)
 
     def start_threads(self):
-        """Start the sensor and logging threads."""
+        """Start the sensor, logging, and UART threads."""
         global terminate_program
         terminate_program = False
 
-        # Start the sensor averaging thread
+        # Start sensor averaging thread
         if not self.sensor_thread or not self.sensor_thread.is_alive():
             self.sensor_thread = threading.Thread(target=sensor_check, daemon=True)
             self.sensor_thread.start()
 
-        # Start the data logging thread
+        # Start data logging thread
         if not self.logging_thread or not self.logging_thread.is_alive():
             self.logging_thread = threading.Thread(target=data_log, daemon=True)
             self.logging_thread.start()
+
+        # Start UART communication thread
+        if not self.uart_thread or not self.uart_thread.is_alive():
+            self.uart_thread = threading.Thread(target=uart_thread, daemon=True)
+            self.uart_thread.start()
 
         self.status_label.setText("Status: Running")
         self.start_button.setDisabled(True)
@@ -188,6 +225,9 @@ class ThreadController(QWidget):
 
         if self.logging_thread and self.logging_thread.is_alive():
             self.logging_thread.join()
+
+        if self.uart_thread and self.uart_thread.is_alive():
+            self.uart_thread.join()
 
         self.status_label.setText("Status: Stopped")
         self.start_button.setEnabled(True)

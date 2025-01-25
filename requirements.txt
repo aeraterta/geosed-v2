@@ -1,3 +1,17 @@
+Adafruit-Blinka==8.51.0
+adafruit-circuitpython-busdevice==5.2.11
+adafruit-circuitpython-connectionmanager==3.1.3
+adafruit-circuitpython-dht==4.0.7
+adafruit-circuitpython-lidarlite==1.3.9
+adafruit-circuitpython-requests==4.1.9
+adafruit-circuitpython-typing==1.11.2
+Adafruit-PlatformDetect==3.77.0
+Adafruit-PureIO==1.1.11
+binho-host-adapter==0.1.6
+psutil==6.1.1
+pyftdi==0.56.0
 pyserial==3.5
 PySide2==5.15.2.1
+pyusb==1.3.1
 shiboken2==5.15.2.1
+typing_extensions==4.12.2
